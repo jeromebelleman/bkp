@@ -1,0 +1,104 @@
+#! /usr/bin/env python
+
+import sys
+import subprocess, shlex
+import random
+import optparse
+import tarfile
+import getpass
+import argparse
+
+class InvalidPassphraseError(Exception):
+    pass
+
+def encrypt(path, dest, filename, passphrase, dryrun):
+    cmd = "gpg -c --passphrase-fd 0"
+    destfilename = "%s/%s" % (dest.rstrip('/'), filename)
+    if dryrun:
+        print "tar c '%s' | gpg -c > %s" % (path, destfilename)
+    else:
+        # Open destination encrypted file
+        f = open(destfilename, 'w')
+
+        # Have gpg listen up the pipe
+        args  = shlex.split(cmd)
+        p = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=f)
+
+        # Seems gpg now expects a passphrase, then data down the pipe
+
+        # Write passphrase down the pipe
+        print >>p.stdin, passphrase
+
+        # Have tar write data down the pipe
+        t = tarfile.open(mode='w|', fileobj=p.stdin)
+        t.add(path)
+
+        f.close()
+
+def bkp(paths, dest, passphrase, dryrun):
+    for p in paths:
+        try:
+            path, encrypted = p
+        except ValueError:
+            path, encrypted = p, None
+
+        if encrypted is not None:
+            encrypt(path, dest, encrypted, passphrase, dryrun)
+        else:
+            if dryrun:
+                print "rsync -av --progress %s %s" % (path.rstrip('/'), dest)
+            else:
+                raise NotImplementedError()
+
+# FIXME As a separate option?
+def mkd(path):
+    try:
+        f = open(path)
+        d = []
+        for w in f:
+            d.append(w)
+        f.close()
+        return d
+    except IOError, e:
+        print sys.stderr, e
+
+def passwd():
+    # A la gpg
+    p0 = getpass.getpass("Enter passphrase: ")
+    p1 = getpass.getpass("Repeat passphrase: ")
+
+    if p0 == p1:
+        return p0
+    else:
+        raise InvalidPassphraseError()
+
+def main():
+    # Arguments
+    description = "Back up files and encrypt them on the fly if needs be"
+    p = argparse.ArgumentParser(description=description)
+    help = "file listing what is to be backed up and how"
+    p.add_argument("rcfile", help=help)
+    help = "perform a trial run with no changes made"
+    p.add_argument("--dry-run", action='store_true', help=help)
+    help = "destination backup directory"
+    p.add_argument("dest", help=help)
+    args = p.parse_args()
+
+    # Load RC file
+    try:
+        rc = {}
+        execfile(args.rcfile, rc)
+    except IOError, e:
+        print >>sys.stderr, e
+        return 1
+
+    # Perform backup
+    try:
+        passphrase = passwd()
+        bkp(rc['paths'], args.dest, passphrase, args.dry_run)
+    except InvalidPassphraseError, e:
+        print >>sys.stderr, "Invalid passphrase"
+        return 1
+
+if __name__ == '__main__':
+    sys.exit(main())
