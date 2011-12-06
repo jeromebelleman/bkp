@@ -11,7 +11,18 @@ import argparse
 class InvalidPassphraseError(Exception):
     pass
 
-def encrypt(path, dest, filename, passphrase, dryrun):
+def encrypt(path, dest, filename, passphrase, dry-run):
+    '''
+    Back up by archiving and encrypting on the fly
+
+    Arguments:
+    - path to back up
+    - destination directory
+    - destination file name
+    - passphrase
+    - optionally do a dry-run
+    '''
+
     cmd = "gpg -c --passphrase-fd 0"
     destfilename = "%s/%s" % (dest.rstrip('/'), filename)
     if dryrun:
@@ -35,7 +46,17 @@ def encrypt(path, dest, filename, passphrase, dryrun):
 
         f.close()
 
-def bkp(paths, dest, passphrase, dryrun):
+def bkp(paths, dest, passphrase, dryrun=False):
+    '''
+    Perform backup
+
+    Arguments:
+    - list of paths to back up
+    - destination directory
+    - passphrase
+    - optionally do a dry-run
+    '''
+
     for p in paths:
         try:
             path, encrypted = p
@@ -66,6 +87,11 @@ def mkd(path):
         print sys.stderr, e
 
 def passwd():
+    '''
+    Ask for passphrase twice, making sure they're identical and not empty
+    and return one of them
+    '''
+
     # A la gpg
     p0 = getpass.getpass("Enter passphrase: ")
     p1 = getpass.getpass("Repeat passphrase: ")
