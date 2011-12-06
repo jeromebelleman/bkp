@@ -45,12 +45,12 @@ def bkp(paths, dest, passphrase, dryrun):
         if encrypted is not None:
             encrypt(path, dest, encrypted, passphrase, dryrun)
         else:
-            cmd = "rsync -aq --progress '%s' %s" % \
-                (os.path.expanduser(path.rstrip('/')), dest)
+            args = ['rsync', '-aq', '--progress',
+                    os.path.expanduser(path.rstrip('/')), dest]
             if dryrun:
-                print cmd
+                print ' '.join(args)
             else:
-                p = subprocess.Popen(shlex.split(cmd))
+                p = subprocess.Popen(args)
                 p.wait()
 
 # FIXME As a separate option?
