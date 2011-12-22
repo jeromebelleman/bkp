@@ -1,17 +1,31 @@
 #! /usr/bin/env python
 
-import sys, os.path
+import sys, os, os.path
 import subprocess, shlex
 import random
 import optparse
 import tarfile
 import getpass
 import argparse
+import datetime
 
 class InvalidPassphraseError(Exception):
     pass
 
-def encrypt(path, dest, filename, passphrase, dry-run):
+def last(path):
+    '''
+    Return modification time of last-modified file in path hierarchy
+    '''
+
+    maxtime = 0
+    for root, dirs, files in os.walk(path):
+        for f in dirs + files:
+            s = os.stat(root + '/' + f)
+            maybemax = s.st_mtime if s.st_mtime > s.st_ctime else s.st_ctime
+            maxtime = maybemax if maybemax > maxtime else maxtime
+    return maxtime
+
+def encrypt(path, dest, filename, passphrase, dryrun=False):
     '''
     Back up by archiving and encrypting on the fly
 
