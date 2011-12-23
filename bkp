@@ -87,52 +87,34 @@ def bkp(paths, dest, passphrase, dryrun=False):
     now = time.mktime(datetime.datetime.now().timetuple())
 
     for path in paths:
-        if isinstance(path, str):
-            active = True
-            filename = None
-        elif isinstance(path, dict):
-            d = path
-            # YAML allows for several keys a dict -- we don't
-            if len(d) > 1:
-                msg = "More than one key here: %s" % d
-                print >>sys.stderr, msg
-
-            for k in d: # Should be only one loop
-                # Assume it's to be encrypted
-                try:
-                    filename = d[k]['filename']
-                except KeyError: # So it's not to be encrypted
-                    filename = None
-
-                # Assume there's an active key
-                try:
-                    active = d[k]['active']
-                except KeyError: # So there's no active key
-                    active = True # Implicitely back up
-
-                path = k
-        else:
-            print >>sys.stderr, "Came across %s in RC file" % type(path)
-            continue
+        d = paths[path]
+        # Assume there's an active key
+        try:
+            active = d['active']
+        except KeyError: # So there's no active key
+            active = True # Implicitely back up
 
         if active:
-            if filename == None: # Don't encrypt
+            # Assume it's to be encrypted
+            try:
+                if 'last' not in d or last(expanduser(path)) > d['last']:
+                    destfilename = "%s/%s/%s" % \
+                        (dest, d['destination'], d['filename'])
+                    if dryrun:
+                        print "tar c '%s' | gpg -c > %s" % (path, destfilename)
+                    else:
+                        d['last'] = now
+                        encrypt(path, destfilename, passphrase, now, dryrun)
+            except KeyError: # So it's not to be encrypted
                 args = ['rsync', '-aq', '--progress',
-                        expanduser(path.rstrip('/')), dest]
+                        expanduser(path.rstrip('/')),
+                        '%s/%s' % (dest, d['destination'])
+                       ]
                 if dryrun:
                     print ' '.join(args)
                 else:
                     p = subprocess.Popen(args)
                     p.wait()
-            else: # Encrypt
-                if 'last' not in d[k] or last(expanduser(path)) > d[k]['last']:
-                    destfilename = "%s/%s" % (dest.rstrip('/'), filename)
-
-                    if dryrun:
-                        print "tar c '%s' | gpg -c > %s" % (path, destfilename)
-                    else:
-                        d[k]['last'] = now
-                        encrypt(path, destfilename, passphrase, now, dryrun)
 
     return paths
 
