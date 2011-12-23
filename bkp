@@ -1,46 +1,55 @@
 #! /usr/bin/env python
 
 import sys, os, os.path
+from os.path import expanduser
 import subprocess, shlex
 import random
 import optparse
 import tarfile
 import getpass
 import argparse
-import datetime
+import datetime, time
 import yaml
+
+# FIXME We should be able to do a single expanduser once and for all
 
 class InvalidPassphraseError(Exception):
     pass
 
 def last(path):
     '''
-    Return modification time of last-modified file in path hierarchy
+    Return modification time of last-modified file in expanded path hierarchy
     '''
 
     maxtime = 0
+
+    def getmaxtime(path, maxtime):
+        s = os.stat(path)
+        maybemax = s.st_mtime if s.st_mtime > s.st_ctime else s.st_ctime
+        return maybemax if maybemax > maxtime else maxtime
+
+    # Root directory
+    maxtime = getmaxtime(path, maxtime)
+
+    # Sub hierarchy
     for root, dirs, files in os.walk(path):
         for f in dirs + files:
-            s = os.stat(root + '/' + f)
-            maybemax = s.st_mtime if s.st_mtime > s.st_ctime else s.st_ctime
-            maxtime = maybemax if maybemax > maxtime else maxtime
+            maxtime = getmaxtime(root + '/' + f, maxtime)
     return maxtime
 
-def encrypt(path, dest, filename, passphrase, now, dryrun=False):
+def encrypt(path, destfilename, passphrase, now, dryrun=False):
     '''
     Back up by archiving and encrypting on the fly
 
     Arguments:
     - path to back up
-    - destination directory
-    - destination file name
+    - destination path
     - passphrase
     - datetime when file has been encrypted and backed up
     - optionally do a dry run
     '''
 
     cmd = "gpg -c --passphrase-fd 0"
-    destfilename = "%s/%s" % (dest.rstrip('/'), filename)
     if dryrun:
         print "tar c '%s' | gpg -c > %s" % (path, destfilename)
     else:
@@ -58,7 +67,7 @@ def encrypt(path, dest, filename, passphrase, now, dryrun=False):
 
         # Have tar write data down the pipe
         t = tarfile.open(mode='w|', fileobj=p.stdin)
-        t.add(os.path.expanduser(path))
+        t.add(expanduser(path))
 
         f.close()
 
@@ -75,7 +84,7 @@ def bkp(paths, dest, passphrase, dryrun=False):
     Return modified, backed up list of paths 
     '''
 
-    now = datetime.datetime.now()
+    now = time.mktime(datetime.datetime.now().timetuple())
 
     for path in paths:
         if isinstance(path, str):
@@ -92,7 +101,6 @@ def bkp(paths, dest, passphrase, dryrun=False):
                 # Assume it's to be encrypted
                 try:
                     filename = d[k]['filename']
-                    d[k]['last'] = now
                 except KeyError: # So it's not to be encrypted
                     filename = None
 
@@ -108,16 +116,23 @@ def bkp(paths, dest, passphrase, dryrun=False):
             continue
 
         if active:
-            if filename == None:
+            if filename == None: # Don't encrypt
                 args = ['rsync', '-aq', '--progress',
-                        os.path.expanduser(path.rstrip('/')), dest]
+                        expanduser(path.rstrip('/')), dest]
                 if dryrun:
                     print ' '.join(args)
                 else:
                     p = subprocess.Popen(args)
                     p.wait()
-            else:
-                encrypt(path, dest, filename, passphrase, now, dryrun)
+            else: # Encrypt
+                if 'last' not in d[k] or last(expanduser(path)) > d[k]['last']:
+                    destfilename = "%s/%s" % (dest.rstrip('/'), filename)
+
+                    if dryrun:
+                        print "tar c '%s' | gpg -c > %s" % (path, destfilename)
+                    else:
+                        d[k]['last'] = now
+                        encrypt(path, destfilename, passphrase, now, dryrun)
 
     return paths
 
