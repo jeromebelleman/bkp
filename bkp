@@ -8,6 +8,7 @@ import tarfile
 import getpass
 import argparse
 import datetime
+import yaml
 
 class InvalidPassphraseError(Exception):
     pass
@@ -34,7 +35,7 @@ def encrypt(path, dest, filename, passphrase, dryrun=False):
     - destination directory
     - destination file name
     - passphrase
-    - optionally do a dry-run
+    - optionally do a dry run
     '''
 
     cmd = "gpg -c --passphrase-fd 0"
@@ -68,18 +69,14 @@ def bkp(paths, dest, passphrase, dryrun=False):
     - list of paths to back up
     - destination directory
     - passphrase
-    - optionally do a dry-run
+    - optionally do a dry run
     '''
 
-    for p in paths:
-        try:
-            path, encrypted = p
-        except ValueError:
-            path, encrypted = p, None
-
-        if encrypted is not None:
-            encrypt(path, dest, encrypted, passphrase, dryrun)
-        else:
+    for path in paths:
+        try: # Assume it's to be encrypted and therefore is a dictionary
+            for k in path: # Should be only one loop
+                encrypt(k, dest, path[k]['filename'], passphrase, dryrun)
+        except TypeError: # So it's not to be encrypted
             args = ['rsync', '-aq', '--progress',
                     os.path.expanduser(path.rstrip('/')), dest]
             if dryrun:
@@ -129,8 +126,8 @@ def main():
 
     # Load RC file
     try:
-        rc = {}
-        execfile(args.rcfile, rc)
+        f = open(args.rcfile, 'r+')
+        rc = yaml.load(f)
     except IOError, e:
         print >>sys.stderr, e
         return 1
@@ -138,7 +135,7 @@ def main():
     # Perform backup
     try:
         passphrase = passwd()
-        bkp(rc['paths'], args.dest, passphrase, args.dry_run)
+        bkp(rc, args.dest, passphrase, args.dry_run)
     except InvalidPassphraseError, e:
         print >>sys.stderr, "Invalid passphrase"
         return 1
