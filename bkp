@@ -26,7 +26,7 @@ def last(path):
             maxtime = maybemax if maybemax > maxtime else maxtime
     return maxtime
 
-def encrypt(path, dest, filename, passphrase, dryrun=False):
+def encrypt(path, dest, filename, passphrase, now, dryrun=False):
     '''
     Back up by archiving and encrypting on the fly
 
@@ -35,6 +35,7 @@ def encrypt(path, dest, filename, passphrase, dryrun=False):
     - destination directory
     - destination file name
     - passphrase
+    - datetime when file has been encrypted and backed up
     - optionally do a dry run
     '''
 
@@ -70,20 +71,55 @@ def bkp(paths, dest, passphrase, dryrun=False):
     - destination directory
     - passphrase
     - optionally do a dry run
+
+    Return modified, backed up list of paths 
     '''
 
+    now = datetime.datetime.now()
+
     for path in paths:
-        try: # Assume it's to be encrypted and therefore is a dictionary
-            for k in path: # Should be only one loop
-                encrypt(k, dest, path[k]['filename'], passphrase, dryrun)
-        except TypeError: # So it's not to be encrypted
-            args = ['rsync', '-aq', '--progress',
-                    os.path.expanduser(path.rstrip('/')), dest]
-            if dryrun:
-                print ' '.join(args)
+        if isinstance(path, str):
+            active = True
+            filename = None
+        elif isinstance(path, dict):
+            d = path
+            # YAML allows for several keys a dict -- we don't
+            if len(d) > 1:
+                msg = "More than one key here: %s" % d
+                print >>sys.stderr, msg
+
+            for k in d: # Should be only one loop
+                # Assume it's to be encrypted
+                try:
+                    filename = d[k]['filename']
+                    d[k]['last'] = now
+                except KeyError: # So it's not to be encrypted
+                    filename = None
+
+                # Assume there's an active key
+                try:
+                    active = d[k]['active']
+                except KeyError: # So there's no active key
+                    active = True # Implicitely back up
+
+                path = k
+        else:
+            print >>sys.stderr, "Came across %s in RC file" % type(path)
+            continue
+
+        if active:
+            if filename == None:
+                args = ['rsync', '-aq', '--progress',
+                        os.path.expanduser(path.rstrip('/')), dest]
+                if dryrun:
+                    print ' '.join(args)
+                else:
+                    p = subprocess.Popen(args)
+                    p.wait()
             else:
-                p = subprocess.Popen(args)
-                p.wait()
+                encrypt(path, dest, filename, passphrase, now, dryrun)
+
+    return paths
 
 # FIXME As a separate option?
 def mkd(path):
@@ -126,8 +162,9 @@ def main():
 
     # Load RC file
     try:
-        f = open(args.rcfile, 'r+')
+        f = open(args.rcfile, 'r')
         rc = yaml.load(f)
+        f.close()
     except IOError, e:
         print >>sys.stderr, e
         return 1
@@ -135,7 +172,10 @@ def main():
     # Perform backup
     try:
         passphrase = passwd()
-        bkp(rc, args.dest, passphrase, args.dry_run)
+        paths = bkp(rc, args.dest, passphrase, args.dry_run)
+        f = open(args.rcfile, 'w')
+        f.write(yaml.dump(paths, default_flow_style=False))
+        f.close()
     except InvalidPassphraseError, e:
         print >>sys.stderr, "Invalid passphrase"
         return 1
