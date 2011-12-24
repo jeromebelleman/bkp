@@ -23,6 +23,8 @@ def last(path):
 
     maxtime = 0
 
+    # FIXME Maybe checking ctime is good enough because it's always >= mtime?
+
     def getmaxtime(path, maxtime):
         s = os.stat(path)
         maybemax = s.st_mtime if s.st_mtime > s.st_ctime else s.st_ctime
@@ -81,8 +83,6 @@ def bkp(paths, dest, col, passphrase, dryrun=False):
     - backup collection name
     - passphrase
     - optionally do a dry run
-
-    Return modified, backed up list of paths 
     '''
 
     now = time.mktime(datetime.datetime.now().timetuple())
@@ -98,9 +98,11 @@ def bkp(paths, dest, col, passphrase, dryrun=False):
         if active:
             # Assume it's to be encrypted
             try:
-                if 'last' not in d or last(expanduser(path)) > d['last']:
-                    destfilename = "%s/%s/%s/%s" % \
-                        (dest, col, d['destination'], d['filename'])
+                destfilename = "%s/%s/%s/%s" % \
+                    (dest, col, d['destination'], d['filename'])
+
+                if not os.path.isfile(destfilename) or \
+                    last(expanduser(path)) > os.stat(destfilename).st_ctime:
                     if dryrun:
                         print "tar c '%s' | gpg -c > %s" % (path, destfilename)
                     else:
@@ -116,8 +118,6 @@ def bkp(paths, dest, col, passphrase, dryrun=False):
                 else:
                     p = subprocess.Popen(args)
                     p.wait()
-
-    return paths
 
 # FIXME As a separate option?
 def mkd(path):
@@ -170,11 +170,8 @@ def main():
     # Perform backup
     try:
         passphrase = passwd()
-        paths = bkp(rc, args.dest, args.rcfile.rsplit('.', 1)[0],
-                    passphrase, args.dry_run)
-        f = open(args.rcfile, 'w')
-        f.write(yaml.dump(paths, default_flow_style=False))
-        f.close()
+        bkp(rc, args.dest, args.rcfile.rsplit('.', 1)[0],
+            passphrase, args.dry_run)
     except InvalidPassphraseError, e:
         print >>sys.stderr, "Invalid passphrase"
         return 1
