@@ -109,7 +109,7 @@ def bkp(paths, dest, col, passphrase, dryrun=False):
                         d['last'] = now
                         encrypt(path, destfilename, passphrase, now, dryrun)
             except KeyError: # So it's not to be encrypted
-                args = ['rsync', '-aq', '--progress',
+                args = ['rsync', '-aq', '--delete', '--progress',
                         expanduser(path.rstrip('/')),
                         '%s/%s/%s' % (dest, col, d['destination'])
                        ]
