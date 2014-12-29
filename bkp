@@ -5,7 +5,7 @@ Back up files and encrypt them on the fly if needs be
 '''
 
 import sys, os
-from os.path import dirname, normpath, expanduser, isfile, getctime
+from os.path import dirname, normpath, expanduser, isfile, getctime, basename
 import subprocess
 import getpass
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
@@ -64,6 +64,8 @@ def runbkp(cfg, passphrase, dryrun=False, quiet=False):
     stderr = DEVNULL if quiet else None
 
     # Encrypt
+    if 'encrypt' not in cfg:
+        return
     for path in cfg['encrypt']:
         source = '%s/%s' % (src, path)
         directory = '%s/%s' % (dst, dirname(normpath(path)))
@@ -74,7 +76,7 @@ def runbkp(cfg, passphrase, dryrun=False, quiet=False):
             continue
 
         # Prepare command lines
-        tarcmd = ['tar', '-c', source]
+        tarcmd = ['tar', '-c', basename(normpath(path))]
         gpgcmd = ['gpg', '-c', '-o', destination, '--yes', '--passphrase-fd']
         if not quiet:
             print ' '.join(tarcmd + ['|'] + gpgcmd + ['?'])
@@ -92,9 +94,9 @@ def runbkp(cfg, passphrase, dryrun=False, quiet=False):
             os.close(wpipe)
 
             # Run processes
-            # Have quiet option douse leading ''/ messages
             tarproc = subprocess.Popen(tarcmd + maytarquiet,
-                                       stdout=subprocess.PIPE, stderr=stderr)
+                                       stdout=subprocess.PIPE,
+                                       cwd=dirname(normpath(source)))
             # No annoying message on stderr here
             gpgproc = subprocess.Popen(gpgcmd + [str(rpipe)] + maygpgquiet,
                                        stdin=tarproc.stdout)
