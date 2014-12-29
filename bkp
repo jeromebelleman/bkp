@@ -1,180 +1,147 @@
 #! /usr/bin/env python
 
-import sys, os, os.path
-from os.path import expanduser
-import subprocess, shlex
-import random
-import optparse
-import tarfile
+'''
+Back up files and encrypt them on the fly if needs be
+'''
+
+import sys, os
+from os.path import dirname, normpath, expanduser, isfile, getctime
+import subprocess
 import getpass
-import argparse
-import datetime, time
+from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
+import platform
 import yaml
 
-# FIXME We should be able to do a single expanduser once and for all
+# TODO Make dryrun and verbose independent
 
-class InvalidPassphraseError(Exception):
-    pass
-
-def last(path):
+def getlatest(path):
     '''
-    Return modification time of last-modified file in expanded path hierarchy
+    Return latest ctime in file tree
     '''
 
-    maxtime = 0
+    def getfilelatest(latest, filepath):
+        '''
+        Return latest ctime for file
+        '''
 
-    # FIXME Maybe checking ctime is good enough because it's always >= mtime?
+        return getctime(filepath) if getctime(filepath) > latest else latest
 
-    def getmaxtime(path, maxtime):
-        s = os.stat(path)
-        maybemax = s.st_mtime if s.st_mtime > s.st_ctime else s.st_ctime
-        return maybemax if maybemax > maxtime else maxtime
+    latest = 0
+    for dirpath, _, filenames in os.walk(path):
+        latest = getfilelatest(latest, dirpath)
+        for filename in filenames:
+            latest = getfilelatest(latest, '%s/%s' % (dirpath, filename))
 
-    # Root directory
-    maxtime = getmaxtime(path, maxtime)
+    return latest
 
-    # Sub hierarchy
-    for root, dirs, files in os.walk(path):
-        for f in dirs + files:
-            maxtime = getmaxtime(root + '/' + f, maxtime)
-    return maxtime
-
-def encrypt(path, destfilename, passphrase, now, dryrun=False):
+def runbkp(cfg, passphrase, dryrun=False):
     '''
-    Back up by archiving and encrypting on the fly
-
-    Arguments:
-    - path to back up
-    - destination path
-    - passphrase
-    - datetime when file has been encrypted and backed up
-    - optionally do a dry run
+    Run backup
     '''
 
-    cmd = "gpg -c --passphrase-fd 0"
-    if dryrun:
-        print "tar c '%s' | gpg -c > %s" % (path, destfilename)
-    else:
-        # Open destination encrypted file
-        f = open(destfilename, 'w')
+    src = expanduser(cfg['source'])
+    dst = expanduser(cfg['destination'])
 
-        # Have gpg listen up the pipe
-        args  = shlex.split(cmd)
-        p = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=f)
-
-        # Seems gpg now expects a passphrase, then data down the pipe
-
-        # Write passphrase down the pipe
-        print >>p.stdin, passphrase
-
-        # Have tar write data down the pipe
-        t = tarfile.open(mode='w|', fileobj=p.stdin)
-        t.add(expanduser(path))
-
-        f.close()
-
-def bkp(paths, dest, col, passphrase, dryrun=False):
-    '''
-    Perform backup
-
-    Arguments:
-    - list of paths to back up
-    - destination directory
-    - backup collection name
-    - passphrase
-    - optionally do a dry run
-    '''
-
-    now = time.mktime(datetime.datetime.now().timetuple())
-
-    for path in paths:
-        d = paths[path]
-        # Assume there's an active key
-        try:
-            active = d['active']
-        except KeyError: # So there's no active key
-            active = True # Implicitely back up
-
-        if active:
-            # Assume it's to be encrypted
-            try:
-                destfilename = "%s/%s/%s/%s" % \
-                    (dest, col, d['destination'], d['filename'])
-
-                if not os.path.isfile(destfilename) or \
-                    last(expanduser(path)) > os.stat(destfilename).st_ctime:
-                    if dryrun:
-                        print "tar c '%s' | gpg -c > %s" % (path, destfilename)
-                    else:
-                        d['last'] = now
-                        encrypt(path, destfilename, passphrase, now, dryrun)
-            except KeyError: # So it's not to be encrypted
-                args = ['rsync', '-aq', '--delete', '--progress',
-                        expanduser(path.rstrip('/')),
-                        '%s/%s/%s' % (dest, col, d['destination'])
-                       ]
-                if dryrun:
-                    print ' '.join(args)
-                else:
-                    p = subprocess.Popen(args)
-                    p.wait()
-
-# FIXME As a separate option?
-def mkd(path):
+    # Make destination directory tree
     try:
-        f = open(path)
-        d = []
-        for w in f:
-            d.append(w)
-        f.close()
-        return d
-    except IOError, e:
-        print sys.stderr, e
+        os.makedirs(dst)
+    except OSError:
+        pass
 
-def passwd():
+    # Copy files with rsync
+    maydry = ['-n'] if dryrun else []
+    cmd = ['rsync', '-ar', '--delete', '--progress', '--files-from=-', src, dst]
+    proc = subprocess.Popen(cmd + maydry, stdin=subprocess.PIPE)
+    proc.communicate('\n'.join(cfg['copy']))
+
+    # Encrypt
+    for path in cfg['encrypt']:
+        source = '%s/%s' % (src, path)
+        directory = '%s/%s' % (dst, dirname(normpath(path)))
+        destination = '%s/%s' % (directory, cfg['encrypt'][path])
+
+        # Does the file need updating?
+        if isfile(destination) and getlatest(source) <= getctime(destination):
+            continue
+
+        # Prepare command lines
+        tarcmd = ['tar', 'c', source]
+        gpgcmd = ['gpg', '-c', '-o', destination, '--yes',
+                  '--passphrase-fd']
+
+        if dryrun:
+            print ' '.join(tarcmd + ['|'] + gpgcmd + ['?'])
+        else:
+            # Make directory tree if needed
+            try:
+                os.makedirs(directory)
+            except OSError:
+                pass
+
+            # Write passphrase down a pipe
+            rpipe, wpipe = os.pipe()
+            os.write(wpipe, passphrase)
+            os.close(wpipe)
+
+            # Run processes
+            tarproc = subprocess.Popen(tarcmd, stdout=subprocess.PIPE)
+            gpgproc = subprocess.Popen(gpgcmd + [str(rpipe)],
+                                       stdin=tarproc.stdout)
+            gpgproc.communicate()
+            tarproc.communicate()
+            os.close(rpipe)
+
+def getpassphrase():
     '''
     Ask for passphrase twice, making sure they're identical and not empty
     and return one of them
     '''
 
     # A la gpg
-    p0 = getpass.getpass("Enter passphrase: ")
-    p1 = getpass.getpass("Repeat passphrase: ")
+    pass0 = getpass.getpass("Enter passphrase: ")
+    pass1 = getpass.getpass("Repeat passphrase: ")
 
-    if p0 == p1 and p0 != '':
-        return p0
-    else:
-        raise InvalidPassphraseError()
+    if pass0 == pass1 and pass0 != '':
+        return pass0
 
 def main():
+    '''
+    Main routine
+    '''
+
     # Arguments
     description = "Back up files and encrypt them on the fly if needs be"
-    p = argparse.ArgumentParser(description=description)
-    help = "file listing what is to be backed up and how"
-    p.add_argument("rcfile", help=help)
-    help = "perform a trial run with no changes made"
-    p.add_argument("--dry-run", action='store_true', help=help)
-    help = "destination backup directory"
-    p.add_argument("dest", help=help)
-    args = p.parse_args()
+    parser = ArgumentParser(description=description,
+                            formatter_class=ArgumentDefaultsHelpFormatter)
+    parser.add_argument('--directory', '-d', help="runtime directory",
+                        default='~/.bkp', type=expanduser)
+    parser.add_argument('--host', help="host to back up",
+                        default=platform.node())
+    parser.add_argument('--dryrun', '-n', action='store_true')
+    args = parser.parse_args()
 
     # Load RC file
     try:
-        f = open(args.rcfile, 'r')
-        rc = yaml.load(f)
-        f.close()
-    except IOError, e:
-        print >>sys.stderr, e
+        with open(args.directory + '/bkp.yaml') as fhl:
+            cfg = yaml.load(fhl, Loader=yaml.BaseLoader)
+    except IOError, exc:
+        print >> sys.stderr, exc
         return 1
 
+    # Need to ask for a passphrase?
+    if 'encrypt' in cfg[args.host]:
+        try:
+            passphrase = getpassphrase()
+            if not passphrase:
+                print >> sys.stderr, "Invalid passphrase"
+                return 1
+        except KeyboardInterrupt:
+            return 1
+    else:
+        passphrase = None
+
     # Perform backup
-    try:
-        passphrase = passwd()
-        bkp(rc, args.dest, args.rcfile.rsplit('.', 1)[0],
-            passphrase, args.dry_run)
-    except InvalidPassphraseError, e:
-        print >>sys.stderr, "Invalid passphrase"
-        return 1
+    runbkp(cfg[args.host], passphrase, args.dryrun)
 
 if __name__ == '__main__':
     sys.exit(main())
