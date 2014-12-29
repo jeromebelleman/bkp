@@ -12,6 +12,8 @@ from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 import platform
 import yaml
 
+DEVNULL = open(os.devnull, 'w')
+
 # TODO Make dryrun and verbose independent
 
 def getlatest(path):
@@ -34,7 +36,7 @@ def getlatest(path):
 
     return latest
 
-def runbkp(cfg, passphrase, dryrun=False):
+def runbkp(cfg, passphrase, dryrun=False, quiet=False):
     '''
     Run backup
     '''
@@ -49,10 +51,17 @@ def runbkp(cfg, passphrase, dryrun=False):
         pass
 
     # Copy files with rsync
-    maydry = ['-n'] if dryrun else []
-    cmd = ['rsync', '-ar', '--delete', '--progress', '--files-from=-', src, dst]
-    proc = subprocess.Popen(cmd + maydry, stdin=subprocess.PIPE)
+    mayrsyncdry = ['-n'] if dryrun else []
+    mayrsyncquiet = [] if quiet else ['--progress']
+    cmd = ['rsync', '-ar', '--delete', '--files-from=-', src, dst]
+    proc = subprocess.Popen(cmd + mayrsyncdry + mayrsyncquiet,
+                            stdin=subprocess.PIPE)
     proc.communicate('\n'.join(cfg['copy']))
+
+    # Options for following commands
+    maytarquiet = [] if quiet else ['-v']
+    maygpgquiet = ['--batch'] if quiet else []
+    stderr = DEVNULL if quiet else None
 
     # Encrypt
     for path in cfg['encrypt']:
@@ -65,13 +74,12 @@ def runbkp(cfg, passphrase, dryrun=False):
             continue
 
         # Prepare command lines
-        tarcmd = ['tar', 'c', source]
-        gpgcmd = ['gpg', '-c', '-o', destination, '--yes',
-                  '--passphrase-fd']
-
-        if dryrun:
+        tarcmd = ['tar', '-c', source]
+        gpgcmd = ['gpg', '-c', '-o', destination, '--yes', '--passphrase-fd']
+        if not quiet:
             print ' '.join(tarcmd + ['|'] + gpgcmd + ['?'])
-        else:
+
+        if not dryrun:
             # Make directory tree if needed
             try:
                 os.makedirs(directory)
@@ -84,8 +92,11 @@ def runbkp(cfg, passphrase, dryrun=False):
             os.close(wpipe)
 
             # Run processes
-            tarproc = subprocess.Popen(tarcmd, stdout=subprocess.PIPE)
-            gpgproc = subprocess.Popen(gpgcmd + [str(rpipe)],
+            # Have quiet option douse leading ''/ messages
+            tarproc = subprocess.Popen(tarcmd + maytarquiet,
+                                       stdout=subprocess.PIPE, stderr=stderr)
+            # No annoying message on stderr here
+            gpgproc = subprocess.Popen(gpgcmd + [str(rpipe)] + maygpgquiet,
                                        stdin=tarproc.stdout)
             gpgproc.communicate()
             tarproc.communicate()
@@ -118,6 +129,7 @@ def main():
     parser.add_argument('--host', help="host to back up",
                         default=platform.node())
     parser.add_argument('--dryrun', '-n', action='store_true')
+    parser.add_argument('--quiet', '-q', action='store_true')
     args = parser.parse_args()
 
     # Load RC file
@@ -141,7 +153,7 @@ def main():
         passphrase = None
 
     # Perform backup
-    runbkp(cfg[args.host], passphrase, args.dryrun)
+    runbkp(cfg[args.host], passphrase, args.dryrun, args.quiet)
 
 if __name__ == '__main__':
     sys.exit(main())
