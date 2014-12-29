@@ -126,10 +126,10 @@ def main():
     description = "Back up files and encrypt them on the fly if needs be"
     parser = ArgumentParser(description=description,
                             formatter_class=ArgumentDefaultsHelpFormatter)
+    parser.add_argument('collection', metavar='COLLECTION',
+                        help="file collection to back up")
     parser.add_argument('--directory', '-d', help="runtime directory",
                         default='~/.bkp', type=expanduser)
-    parser.add_argument('--host', help="host to back up",
-                        default=platform.node())
     parser.add_argument('--dryrun', '-n', action='store_true')
     parser.add_argument('--quiet', '-q', action='store_true')
     args = parser.parse_args()
@@ -143,7 +143,7 @@ def main():
         return 1
 
     # Need to ask for a passphrase?
-    if 'encrypt' in cfg[args.host]:
+    if 'encrypt' in cfg[args.collection]:
         try:
             passphrase = getpassphrase()
             if not passphrase:
@@ -155,7 +155,7 @@ def main():
         passphrase = None
 
     # Perform backup
-    runbkp(cfg[args.host], passphrase, args.dryrun, args.quiet)
+    runbkp(cfg[args.collection], passphrase, args.dryrun, args.quiet)
 
 if __name__ == '__main__':
     sys.exit(main())
