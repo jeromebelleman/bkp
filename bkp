@@ -14,8 +14,6 @@ import yaml
 
 DEVNULL = open(os.devnull, 'w')
 
-# TODO Make dryrun and verbose independent
-
 def getlatest(path):
     '''
     Return latest ctime in file tree
@@ -41,7 +39,6 @@ def runbkp(cfg, passphrase, dryrun=False, quiet=False):
     Run backup
     '''
 
-    src = expanduser(cfg['source'])
     dst = expanduser(cfg['destination'])
 
     # Make destination directory tree
@@ -53,10 +50,11 @@ def runbkp(cfg, passphrase, dryrun=False, quiet=False):
     # Copy files with rsync
     mayrsyncdry = ['-n'] if dryrun else []
     mayrsyncquiet = [] if quiet else ['--progress']
-    cmd = ['rsync', '-ar', '--delete', '--files-from=-', src, dst]
+    cmd = ['rsync', '-ar', '--delete', '--files-from=-', '/', dst]
     proc = subprocess.Popen(cmd + mayrsyncdry + mayrsyncquiet,
                             stdin=subprocess.PIPE)
-    proc.communicate('\n'.join(cfg['copy']))
+    proc.communicate('\n'.join([normpath(expanduser(path))
+                                for path in cfg['copy']]))
 
     # Options for following commands
     maytarquiet = [] if quiet else ['-v']
@@ -67,16 +65,17 @@ def runbkp(cfg, passphrase, dryrun=False, quiet=False):
     if 'encrypt' not in cfg:
         return
     for path in cfg['encrypt']:
-        source = '%s/%s' % (src, path)
-        directory = '%s/%s' % (dst, dirname(normpath(path)))
+        npath = normpath(expanduser(path))
+        dpath = dirname(npath)
+        directory = '%s/%s' % (dst, dpath)
         destination = '%s/%s' % (directory, cfg['encrypt'][path])
 
         # Does the file need updating?
-        if isfile(destination) and getlatest(source) <= getctime(destination):
+        if isfile(destination) and getlatest(npath) <= getctime(destination):
             continue
 
         # Prepare command lines
-        tarcmd = ['tar', '-c', basename(normpath(path))]
+        tarcmd = ['tar', '-c', basename(npath)]
         gpgcmd = ['gpg', '-c', '-o', destination, '--yes', '--passphrase-fd']
         if not quiet:
             print ' '.join(tarcmd + ['|'] + gpgcmd + ['?'])
@@ -96,7 +95,7 @@ def runbkp(cfg, passphrase, dryrun=False, quiet=False):
             # Run processes
             tarproc = subprocess.Popen(tarcmd + maytarquiet,
                                        stdout=subprocess.PIPE,
-                                       cwd=dirname(normpath(source)))
+                                       cwd=dpath)
             # No annoying message on stderr here
             gpgproc = subprocess.Popen(gpgcmd + [str(rpipe)] + maygpgquiet,
                                        stdin=tarproc.stdout)
