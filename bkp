@@ -54,7 +54,10 @@ def runbkp(cfg, passphrase, dryrun=False, quiet=False):
     paths = set()
     for path in cfg['copy']:
         path = normpath(expanduser(path))
-        paths.add('+ %s/***' % path)
+        if isfile(path):
+            paths.add('+ %s' % path)
+        else:
+            paths.add('+ %s/***' % path)
         path = dirname(path)
         while path != '/':
             paths.add('+ %s' % path)
