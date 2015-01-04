@@ -5,7 +5,8 @@ Back up files and encrypt them on the fly if needs be
 '''
 
 import sys, os
-from os.path import dirname, normpath, expanduser, isfile, getctime, basename
+from os.path import dirname, normpath, expanduser, isfile, islink, getctime, \
+                    basename
 import subprocess
 import getpass
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
@@ -47,14 +48,11 @@ def runbkp(cfg, passphrase, dryrun=False, quiet=False):
     except OSError:
         pass
 
-    # Copy files with rsync
-    mayrsyncdry = ['-n'] if dryrun else []
-    mayrsyncquiet = [] if quiet else ['--progress']
-    cmd = ['rsync', '-a', '--filter=. -', '--delete-excluded', '/', dst]
+    # Build rsync filter rules
     paths = set()
     for path in cfg['copy']:
         path = normpath(expanduser(path))
-        if isfile(path):
+        if isfile(path) or islink(path):
             paths.add('+ %s' % path)
         else:
             paths.add('+ %s/***' % path)
@@ -62,6 +60,14 @@ def runbkp(cfg, passphrase, dryrun=False, quiet=False):
         while path != '/':
             paths.add('+ %s' % path)
             path = dirname(path)
+    for path in cfg['encrypt']:
+        paths.add('P %s/%s' % (dirname(normpath(expanduser(path))),
+                               cfg['encrypt'][path]))
+
+    # Copy files with rsync
+    mayrsyncdry = ['-n'] if dryrun else []
+    mayrsyncquiet = [] if quiet else ['--progress']
+    cmd = ['rsync', '-a', '--filter=. -', '--delete-excluded', '/', dst]
     proc = subprocess.Popen(cmd + mayrsyncdry + mayrsyncquiet,
                             stdin=subprocess.PIPE)
     proc.communicate('\n'.join(sorted(paths) + ['- ***']))
