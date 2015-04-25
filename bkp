@@ -73,7 +73,7 @@ def runbkp(cfg, passphrase, dryrun=False, quiet=False):
 
     # Copy files with rsync
     mayrsyncdry = ['-n'] if dryrun else []
-    mayrsyncquiet = [] if quiet else ['--progress']
+    mayrsyncquiet = [] if quiet else ['-v']
     cmd = ['rsync', '-a', '--filter=. -', '--delete-excluded', '/', dst]
     proc = subprocess.Popen(cmd + mayrsyncdry + mayrsyncquiet,
                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
