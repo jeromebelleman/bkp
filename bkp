@@ -11,9 +11,13 @@ import subprocess
 import getpass
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 import platform
+import logging
+import select
 import yaml
 
 DEVNULL = open(os.devnull, 'w')
+FMT = '%(asctime)s %(levelname)s %(message)s'
+DATEFMT = '%Y-%m-%d %H:%M:%S'
 
 def getlatest(path):
     '''
@@ -72,8 +76,22 @@ def runbkp(cfg, passphrase, dryrun=False, quiet=False):
     mayrsyncquiet = [] if quiet else ['--progress']
     cmd = ['rsync', '-a', '--filter=. -', '--delete-excluded', '/', dst]
     proc = subprocess.Popen(cmd + mayrsyncdry + mayrsyncquiet,
-                            stdin=subprocess.PIPE)
-    proc.communicate('\n'.join(sorted(paths) + ['- ***']))
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE)
+    proc.stdin.write('\n'.join(sorted(paths) + ['- ***']))
+    proc.stdin.close()
+    while True:
+        readies = select.select([proc.stdout.fileno(),
+                                 proc.stderr.fileno()], [], [])
+
+        for ready in readies[0]:
+            if ready == proc.stdout.fileno():
+                logging.info(proc.stdout.readline().strip())
+            elif ready == proc.stderr.fileno():
+                logging.warning(proc.stderr.readline().strip())
+
+        if proc.poll() != None:
+            break
 
     # Options for following commands
     maytarquiet = [] if quiet else ['-v']
@@ -97,7 +115,7 @@ def runbkp(cfg, passphrase, dryrun=False, quiet=False):
         tarcmd = ['tar', '-c', basename(npath)]
         gpgcmd = ['gpg', '-c', '-o', destination, '--yes', '--passphrase-fd']
         if not quiet:
-            print ' '.join(tarcmd + ['|'] + gpgcmd + ['?'])
+            logging.info(' '.join(tarcmd + ['|'] + gpgcmd + ['?']))
 
         if not dryrun:
             # Make directory tree if needed
@@ -152,12 +170,22 @@ def main():
     parser.add_argument('--quiet', '-q', action='store_true')
     args = parser.parse_args()
 
+    # Logging
+    logging.basicConfig(level=logging.INFO, datefmt=DATEFMT,
+                        format=FMT)
+
+    hlr = logging.FileHandler(args.directory + '/log')
+    hlr.setFormatter(logging.Formatter(FMT, datefmt=DATEFMT))
+    logging.getLogger().addHandler(hlr)
+
+    logging.info("Starting run")
+
     # Load RC file
     try:
         with open(args.directory + '/bkp.yaml') as fhl:
             cfg = yaml.load(fhl, Loader=yaml.BaseLoader)
     except IOError, exc:
-        print >> sys.stderr, exc
+        logging.error(exc)
         return 1
 
     # Need to ask for a passphrase?
@@ -165,7 +193,7 @@ def main():
         try:
             passphrase = getpassphrase()
             if not passphrase:
-                print >> sys.stderr, "Invalid passphrase"
+                logging.error("Invalid passphrase")
                 return 1
         except KeyboardInterrupt:
             return 1
@@ -174,6 +202,8 @@ def main():
 
     # Perform backup
     runbkp(cfg[args.collection], passphrase, args.dryrun, args.quiet)
+
+    logging.info("Ending run")
 
 if __name__ == '__main__':
     sys.exit(main())
