@@ -103,27 +103,19 @@ def runbkp(cfg, passphrase, dryrun=False, quiet=False):
         return
     for path in cfg['encrypt']:
         npath = normpath(expanduser(path))
-        dpath = dirname(npath)
-        directory = '%s/%s' % (dst, dpath)
-        destination = '%s/%s' % (directory, cfg['encrypt'][path])
+        destination = '%s/%s' % (dst, cfg['encrypt'][path])
 
         # Does the file need updating?
         if isfile(destination) and getlatest(npath) <= getctime(destination):
             continue
 
         # Prepare command lines
-        tarcmd = ['tar', '-c', basename(npath)]
+        tarcmd = ['tar', '-c', npath]
         gpgcmd = ['gpg', '-c', '-o', destination, '--yes', '--passphrase-fd']
         if not quiet:
             logging.info(' '.join(tarcmd + ['|'] + gpgcmd + ['?']))
 
         if not dryrun:
-            # Make directory tree if needed
-            try:
-                os.makedirs(directory)
-            except OSError:
-                pass
-
             # Write passphrase down a pipe
             rpipe, wpipe = os.pipe()
             os.write(wpipe, passphrase)
@@ -131,8 +123,7 @@ def runbkp(cfg, passphrase, dryrun=False, quiet=False):
 
             # Run processes
             tarproc = subprocess.Popen(tarcmd + maytarquiet,
-                                       stdout=subprocess.PIPE,
-                                       cwd=dpath)
+                                       stdout=subprocess.PIPE)
             # No annoying message on stderr here
             gpgproc = subprocess.Popen(gpgcmd + [str(rpipe)] + maygpgquiet,
                                        stdin=tarproc.stdout)
