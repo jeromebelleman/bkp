@@ -65,11 +65,7 @@ def runbkp(cfg, passphrase, dryrun=False, quiet=False):
             paths.add('+ %s' % path)
             path = dirname(path)
     for path in cfg['encrypt']:
-        paths.add('P %s/%s' % (dirname(normpath(expanduser(path))),
-                               cfg['encrypt'][path]))
-        while path != '/':
-            paths.add('P %s' % path)
-            path = dirname(path)
+        paths.add('P /%s' % cfg['encrypt'][path])
 
     # Copy files with rsync
     mayrsyncdry = ['-n'] if dryrun else []
