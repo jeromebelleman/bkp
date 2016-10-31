@@ -86,9 +86,13 @@ def runbkp(cfg, passphrase, dryrun=False, quiet=False):
 
         for ready in readies[0]:
             if ready == proc.stdout.fileno():
-                logging.info(proc.stdout.readline().strip())
+                line = proc.stdout.readline().strip()
+                if line:
+                    logging.info(line)
             elif ready == proc.stderr.fileno():
-                logging.warning(proc.stderr.readline().strip())
+                line = proc.stderr.readline().strip()
+                if line:
+                    logging.warning(line)
 
         if proc.poll() != None:
             break
