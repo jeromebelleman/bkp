@@ -54,12 +54,15 @@ def runbkp(cfg, passphrase, dryrun=False, quiet=False):
 
     # Build rsync filter rules
     paths = set()
+    warnings = set()
     for path in cfg['copy']:
         path = normpath(expanduser(path))
         if isfile(path) or islink(path):
             paths.add('+ %s' % path)
-        else:
+        elif os.path.isdir(path):
             paths.add('+ %s/***' % path)
+        else:
+            warnings.add(path)
         path = dirname(path)
         while path != '/':
             paths.add('+ %s' % path)
@@ -89,6 +92,10 @@ def runbkp(cfg, passphrase, dryrun=False, quiet=False):
 
         if proc.poll() != None:
             break
+
+    # Report
+    for path in warnings:
+        logging.warn('%s: No such file or directory', path)
 
     # Options for following commands
     maytarquiet = [] if quiet else ['-v']
