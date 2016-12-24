@@ -4,13 +4,12 @@
 Back up files and encrypt them on the fly if needs be
 '''
 
-import sys, os
-from os.path import dirname, normpath, expanduser, isfile, islink, getctime, \
-                    basename
+import sys
+import os
+from os.path import dirname, normpath, expanduser, isfile, islink, getctime
 import subprocess
 import getpass
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
-import platform
 import logging
 import select
 import yaml
@@ -104,7 +103,6 @@ def runbkp(cfg, passphrase, needsupdating, dryrun=False, quiet=False):
     # Options for following commands
     maytarquiet = [] if quiet else ['-v']
     maygpgquiet = ['--batch'] if quiet else []
-    stderr = DEVNULL if quiet else None
 
     # Encrypt
     for npath, destination in needsupdating:
