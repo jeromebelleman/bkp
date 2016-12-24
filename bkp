@@ -39,7 +39,7 @@ def getlatest(path):
 
     return latest
 
-def runbkp(cfg, passphrase, dryrun=False, quiet=False):
+def runbkp(cfg, passphrase, needsupdating, dryrun=False, quiet=False):
     '''
     Run backup
     '''
@@ -107,16 +107,7 @@ def runbkp(cfg, passphrase, dryrun=False, quiet=False):
     stderr = DEVNULL if quiet else None
 
     # Encrypt
-    if 'encrypt' not in cfg:
-        return
-    for path in cfg['encrypt']:
-        npath = normpath(expanduser(path))
-        destination = '%s/%s' % (dst, cfg['encrypt'][path])
-
-        # Does the file need updating?
-        if isfile(destination) and getlatest(npath) <= getctime(destination):
-            continue
-
+    for npath, destination in needsupdating:
         # Prepare command lines
         tarcmd = ['tar', '-c', npath]
         gpgcmd = ['gpg', '-c', '-o', destination, '--yes', '--passphrase-fd']
@@ -138,6 +129,25 @@ def runbkp(cfg, passphrase, dryrun=False, quiet=False):
             gpgproc.communicate()
             tarproc.communicate()
             os.close(rpipe)
+
+def getneedsupdating(cfg):
+    '''
+    Get list of encrypted files which need updating
+    '''
+
+    dst = expanduser(cfg['destination'])
+
+    needsupdating = []
+    if 'encrypt' in cfg:
+        for path in cfg['encrypt']:
+            npath = normpath(expanduser(path))
+            destination = '%s/%s' % (dst, cfg['encrypt'][path])
+
+            if not isfile(destination) or \
+                getlatest(npath) > getctime(destination):
+                needsupdating.append((npath, destination))
+
+    return needsupdating
 
 def getpassphrase():
     '''
@@ -187,8 +197,11 @@ def main():
         logging.error(exc)
         return 1
 
+    # Which encrypted files need updating?
+    needsupdating = getneedsupdating(cfg[args.collection])
+
     # Need to ask for a passphrase?
-    if 'encrypt' in cfg[args.collection]:
+    if needsupdating:
         try:
             passphrase = getpassphrase()
             if not passphrase:
@@ -200,7 +213,13 @@ def main():
         passphrase = None
 
     # Perform backup
-    runbkp(cfg[args.collection], passphrase, args.dryrun, args.quiet)
+    runbkp(
+        cfg[args.collection],
+        passphrase,
+        needsupdating,
+        args.dryrun,
+        args.quiet
+    )
 
     logging.info("Ending run")
 
