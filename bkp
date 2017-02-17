@@ -175,7 +175,8 @@ def main():
                         default='~/.bkp', type=expanduser)
     parser.add_argument('--dryrun', '-n', action='store_true')
     parser.add_argument('--quiet', '-q', action='store_true')
-    parser.add_argument('--noroot', action='store_true')
+    parser.add_argument('--nonroot', action='store_true',
+                        help="allow running as non-root")
     args = parser.parse_args()
 
     # Logging
@@ -189,8 +190,8 @@ def main():
     logging.info("Starting run")
 
     # Check UID
-    if not args.noroot and os.geteuid() != 0:
-        logging.error("Not using --noroot and not running as root")
+    if not args.nonroot and os.geteuid() != 0:
+        logging.error("Not using --nonroot but running as non-root")
         return 1
 
     # Load RC file
